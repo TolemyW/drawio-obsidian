@@ -5,6 +5,7 @@ export enum ActionMessageActions {
   FrameConfig = "frame-config",
   Load = "load",
   ToggleBodyClass = "toggle-body-class",
+  LocalStorageSnapshot = "ls-snapshot",
 }
 
 export type FrameConfigActionMessage = {
@@ -38,13 +39,19 @@ export type DrawioLoadActionMessage = {
   xml: string;
 };
 
+export type LocalStorageSnapshotActionMessage = {
+  action: ActionMessageActions.LocalStorageSnapshot;
+  entries: Record<string, string>;
+};
+
 export type ActionMessage =
   | ScriptActionMessage
   | StylesheetActionMessage
   | CssActionMessage
   | ToggleBodyClassActionMessage
   | FrameConfigActionMessage
-  | DrawioLoadActionMessage;
+  | DrawioLoadActionMessage
+  | LocalStorageSnapshotActionMessage;
 
 export enum EventMessageEvents {
   Change = "change",
@@ -53,6 +60,7 @@ export enum EventMessageEvents {
   Load = "load",
   FocusIn = "focusin",
   FocusOut = "focusout",
+  LocalStorageChange = "ls-change",
 }
 
 export type FileChangeEventMessage = {
@@ -81,12 +89,20 @@ export type DrawioLoadEventMessage = {
   xml: string;
 };
 
+// key === null → clear() ; value === null → removeItem(key)
+export type LocalStorageChangeEventMessage = {
+  event: EventMessageEvents.LocalStorageChange;
+  key: string | null;
+  value: string | null;
+};
+
 export type EventMessage =
   | FrameEventMessage
   | FocusInEventMessage
   | FocusOutEventMessage
   | DrawioInitEventMessage
   | DrawioLoadEventMessage
-  | FileChangeEventMessage;
+  | FileChangeEventMessage
+  | LocalStorageChangeEventMessage;
 
 export type Message = ActionMessage | EventMessage;

@@ -16,6 +16,10 @@ export interface DiagramPluginSettings {
     sketch: optionalBoolean;
   };
   cssSnippets: string[];
+  // Mirror of the drawio editor's in-iframe localStorage. Persists
+  // shape-library toggles, recent colours, panel state, etc. across
+  // sessions because the sandboxed iframe can't hold its own.
+  editorLocalStorage: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: DiagramPluginSettings = {
@@ -28,4 +32,5 @@ export const DEFAULT_SETTINGS: DiagramPluginSettings = {
     sketch: true,
   },
   cssSnippets: [],
+  editorLocalStorage: {},
 };

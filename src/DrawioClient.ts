@@ -7,6 +7,7 @@ import {
   DrawioLoadEventMessage,
   EventMessage,
   EventMessageEvents,
+  LocalStorageChangeEventMessage,
 } from "./Messages";
 import { FrameMessenger } from "./FrameMessenger";
 import { DiagramPluginSettings } from "./DiagramPluginSettings";
@@ -32,6 +33,17 @@ export class StateChangeEvent extends Event {
   constructor(initialized: boolean) {
     super("stateChange");
     this.initialized = initialized;
+  }
+}
+
+// key === null → clear() ; value === null → removeItem(key)
+export class LocalStorageChangeEvent extends Event {
+  public readonly key: string | null;
+  public readonly value: string | null;
+  constructor(key: string | null, value: string | null) {
+    super("localStorageChange");
+    this.key = key;
+    this.value = value;
   }
 }
 
@@ -219,6 +231,9 @@ window.parent.postMessage("{\\"event\\":\\"iframe\\"}",'*');
         this.dispatchEvent(new StateChangeEvent(this.isInitialized));
         this.addScriptToFrame(FRAME_INIT_SOURCE);
         this.sendFrameConfig();
+        // Prime the iframe's bridged localStorage before drawio runs,
+        // otherwise its sync reads at load time see an empty store.
+        this.sendLocalStorageSnapshot();
         this.addScriptToFrame(FRAME_DRAWIO_SOURCE);
         this.addScriptToFrame(FRAME_APP_SOURCE);
         break;
@@ -243,6 +258,11 @@ window.parent.postMessage("{\\"event\\":\\"iframe\\"}",'*');
       case EventMessageEvents.FocusOut:
         this.dispatchEvent(new Event("focusout"));
         break;
+      case EventMessageEvents.LocalStorageChange: {
+        const m = message as LocalStorageChangeEventMessage;
+        this.dispatchEvent(new LocalStorageChangeEvent(m.key, m.value));
+        break;
+      }
     }
   }
 
@@ -251,6 +271,14 @@ window.parent.postMessage("{\\"event\\":\\"iframe\\"}",'*');
     this.frameMessenger.sendMessage({
       action: ActionMessageActions.FrameConfig,
       settings: this.settings,
+    });
+  }
+
+  protected sendLocalStorageSnapshot() {
+    const entries = (this.settings && this.settings.editorLocalStorage) || {};
+    this.frameMessenger.sendMessage({
+      action: ActionMessageActions.LocalStorageSnapshot,
+      entries,
     });
   }
 }

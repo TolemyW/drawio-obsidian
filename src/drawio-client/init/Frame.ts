@@ -3,6 +3,7 @@ import {
   ActionMessageActions,
   EventMessageEvents,
   FrameConfigActionMessage,
+  LocalStorageSnapshotActionMessage,
 } from "../../Messages";
 import { FrameMessenger } from "../../FrameMessenger";
 import { loadScript } from "./RequestManager";
@@ -44,24 +45,55 @@ export class Frame {
       value: loadScript,
     });
 
-    // Disable use of local storage
-    Object.defineProperty(window, "isLocalStorage", {
-      value: false,
-    });
+    // Bridge localStorage to the plugin so editor preferences (enabled
+    // shape libraries, recent colours, format panel state, etc.) persist
+    // across sessions. The iframe is sandboxed under a data: URL so the
+    // native localStorage either throws or is wiped each load; we back
+    // it with an in-memory Map that gets primed from a snapshot
+    // delivered by the host before drawio.js runs, and we relay every
+    // mutation back out as a ls-change event.
+    Object.defineProperty(window, "isLocalStorage", { value: true });
 
-    Object.defineProperty(window, "localStorage", {
-      value: {
-        getItem: function (key: string) {
-          console.warn("Disabled localStorage getItem", key);
-        },
-        setItem: function (key: string, value: any) {
-          console.warn("Disabled localStorage setItem", key, value);
-        },
-        removeItem: function (key: string) {
-          console.warn("Disabled localStorage removeItem", key);
-        },
+    const lsStore: Map<string, string> = new Map();
+    const sendLsChange = (key: string | null, value: string | null) => {
+      this.frameMessenger.sendMessage({
+        event: EventMessageEvents.LocalStorageChange,
+        key,
+        value,
+      });
+    };
+    const bridgedStorage = {
+      getItem(key: string): string | null {
+        const v = lsStore.get(String(key));
+        return v === undefined ? null : v;
       },
-    });
+      setItem(key: string, value: any) {
+        const k = String(key);
+        const v = String(value);
+        if (lsStore.get(k) === v) return;
+        lsStore.set(k, v);
+        sendLsChange(k, v);
+      },
+      removeItem(key: string) {
+        const k = String(key);
+        if (!lsStore.has(k)) return;
+        lsStore.delete(k);
+        sendLsChange(k, null);
+      },
+      clear() {
+        if (lsStore.size === 0) return;
+        lsStore.clear();
+        sendLsChange(null, null);
+      },
+      key(i: number): string | null {
+        return Array.from(lsStore.keys())[i] ?? null;
+      },
+      get length() {
+        return lsStore.size;
+      },
+    };
+    Object.defineProperty(window, "localStorage", { value: bridgedStorage });
+    (this as any).lsStore = lsStore;
 
     window.addEventListener("focus", () => {
       this.frameMessenger.sendMessage({
@@ -104,6 +136,18 @@ export class Frame {
     this.configurationManager.setConfig(settings);
   }
 
+  handleLocalStorageSnapshotMessage(
+    message: LocalStorageSnapshotActionMessage
+  ) {
+    const store: Map<string, string> = (this as any).lsStore;
+    if (!store) return;
+    store.clear();
+    const entries = message.entries || {};
+    for (const k of Object.keys(entries)) {
+      store.set(k, String(entries[k]));
+    }
+  }
+
   handleMessages(message: ActionMessage) {
     if ("action" in message) {
       switch (message.action) {
@@ -121,6 +165,9 @@ export class Frame {
           break;
         case ActionMessageActions.FrameConfig:
           this.handleFrameConfigMessage(message);
+          break;
+        case ActionMessageActions.LocalStorageSnapshot:
+          this.handleLocalStorageSnapshotMessage(message);
           break;
       }
     }

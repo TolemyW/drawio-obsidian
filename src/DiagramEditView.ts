@@ -5,6 +5,7 @@ import { DIAGRAM_EDIT_VIEW_TYPE, DIAGRAM_VIEW_TYPE } from "./constants";
 import { createLoadProgress } from "./LoadProgress";
 import DrawioClient, {
   FileChangeEvent,
+  LocalStorageChangeEvent,
   StateChangeEvent,
 } from "./DrawioClient";
 import DiagramView from "./DiagramView";
@@ -14,11 +15,38 @@ const FILE_EXTENSIONS = ["svg"];
 export class DiagramEditView extends DiagramViewBase {
   protected loadProgress: LoadProgress;
   protected drawioClient: DrawioClient;
+  private lsSaveHandle: number | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin: DiagramPlugin) {
     super(leaf, plugin);
     this.app;
     this.loadProgress = createLoadProgress(this.app, this.contentEl);
+  }
+
+  // Drawio writes to localStorage frequently (every panel toggle, recent
+  // colour, etc.); coalesce writes to data.json to avoid hammering disk.
+  private scheduleSaveSettings() {
+    if (this.lsSaveHandle !== null) return;
+    this.lsSaveHandle = window.setTimeout(() => {
+      this.lsSaveHandle = null;
+      this.plugin.saveSettings();
+    }, 500);
+  }
+
+  private handleLocalStorageChange(event: LocalStorageChangeEvent) {
+    const store = this.plugin.settings.editorLocalStorage || {};
+    if (event.key === null) {
+      this.plugin.settings.editorLocalStorage = {};
+    } else if (event.value === null) {
+      if (!(event.key in store)) return;
+      delete store[event.key];
+      this.plugin.settings.editorLocalStorage = store;
+    } else {
+      if (store[event.key] === event.value) return;
+      store[event.key] = event.value;
+      this.plugin.settings.editorLocalStorage = store;
+    }
+    this.scheduleSaveSettings();
   }
 
   private async handleFileChange(event: FileChangeEvent) {
@@ -134,6 +162,10 @@ export class DiagramEditView extends DiagramViewBase {
       "fileChange",
       this.handleFileChange.bind(this)
     );
+    this.drawioClient.addEventListener(
+      "localStorageChange",
+      this.handleLocalStorageChange.bind(this) as EventListener
+    );
 
     // Set the active leaf because the blur event doesn't leave the iframe so Obsidian doesn't
     // handel it automatically
@@ -143,6 +175,12 @@ export class DiagramEditView extends DiagramViewBase {
   }
 
   async onClose() {
+    if (this.lsSaveHandle !== null) {
+      window.clearTimeout(this.lsSaveHandle);
+      this.lsSaveHandle = null;
+      // Flush any pending localStorage changes before the view dies.
+      this.plugin.saveSettings();
+    }
     if (this.drawioClient) {
       this.drawioClient.destroy();
     }
