@@ -71,6 +71,15 @@ export default [
           { src: "./src/assets/styles.css", dest: "./dist" },
         ],
       }),
+      // Some plugins (notably rollup-plugin-copy@3.4.0 via chokidar) leak
+      // a kqueue/fs watcher that keeps Node's event loop alive after the
+      // build is done. Force exit so `npm run build` actually terminates.
+      {
+        name: "force-exit",
+        closeBundle() {
+          setTimeout(() => process.exit(0), 100);
+        },
+      },
     ],
   },
 ];
